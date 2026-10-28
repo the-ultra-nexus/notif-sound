@@ -97,7 +97,7 @@ mv ~/Library/LaunchAgents/com.nexus.notifsound.plist ~/.Trash/
 
 ```
 2026-10-28 23:02:14 attached to NotificationCenter pid 423
-2026-10-28 23:02:14 play app=脚本编辑器 rule=脚本编辑器 sound=Glass text=NotifTest hello body
+2026-10-28 23:02:14 play app=脚本编辑器 rule=脚本编辑器 sound=Glass
 ```
 
 ## 已知边界

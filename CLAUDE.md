@@ -39,7 +39,7 @@ tail -5 ~/data/notif-sound/logs/notif.log
 菜单「测试声音」播放的是配置里第一条规则的音色（最近在设置窗口选过/试听过的优先），
 不是写死的 Glass；命令行 `--test-sound` 走同一套逻辑。
 
-日志里应出现 `play app=脚本编辑器 rule=... sound=... text=...`（osascript 的横幅应用名是「脚本编辑器」）。
+日志里应出现 `play app=脚本编辑器 rule=... sound=...`（osascript 的横幅应用名是「脚本编辑器」）。
 用 `pmset -g assertions | grep -i coreaudio` 确认空闲时没有音频/防睡断言。
 
 ## 架构
@@ -120,7 +120,15 @@ Claude 横幅应用名是 kitty，按 app 规则永远匹配不到，所以由 a
 - 设置窗口的「应用到全部」会改掉所有规则（包括 WeChat/Mail 这类别名行），测试或演示后记得恢复。
 - 调试时先 `launchctl bootout gui/$(id -u)/com.nexus.notifsound`，否则单实例锁会让新实例直接退出。
 - NotificationCenter 重启后靠 5 秒定时器重连；菜单里也有「重新连接通知中心」。
-- 日志里的 `ax window created` 是调试输出，保留用于排查。
+- 日志只记「谁触发的、用了哪条规则、播了什么」，不写通知正文（正文可能是隐私内容）；
+  每个横幅的事件级调试输出（`ax window created`）已去掉。
+- **重编译后系统设置里 NotifSound 明明勾着、日志仍报 `accessibility permission missing`**：
+  ad-hoc 签名换了，旧 TCC 条目不再匹配新二进制。`tccutil reset Accessibility com.nexus.notifsound`
+  再 `launchctl kickstart -k gui/$(id -u)/com.nexus.notifsound`，日志出 `attached to NotificationCenter` 即可。
+- **LaunchAgent 别用 `KeepAlive=true`**：有游离实例占着单实例锁时，被 launchd 拉起的实例每次
+  都干净退出，然后立刻被重拉，形成 10 秒一次的循环，日志刷 `another instance is already running`。
+  现在 plist 用 `KeepAlive = { SuccessfulExit = false }`，正常退出不再重生，只有异常退出才重启。
+  真出现循环先 `pgrep -fl NotifSound` 看是不是两个进程。
 
 ## 卸载
 

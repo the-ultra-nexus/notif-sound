@@ -195,7 +195,6 @@ final class Watcher: NSObject, NSApplicationDelegate {
 
     func handle(notification: String, element: AXUIElement) {
         guard notification == (kAXWindowCreatedNotification as String) else { return }
-        log("ax window created")
         scan(element, attempt: 0)
     }
 
@@ -237,7 +236,7 @@ final class Watcher: NSObject, NSApplicationDelegate {
 
         reloadConfigIfChanged()
         guard let config else {
-            log("no config; app=\(appName) text=\(body)")
+            log("no config; app=\(appName)")
             return
         }
 
@@ -258,12 +257,12 @@ final class Watcher: NSObject, NSApplicationDelegate {
             chosen = (fallback, nil, "fallback")
         }
         guard let chosen else {
-            log("skip app=\(appName) text=\(body)")
+            log("skip app=\(appName)")
             return
         }
 
         play(sound: chosen.sound, volume: chosen.volume)
-        log("play app=\(appName) rule=\(chosen.source) sound=\(chosen.sound) text=\(body)")
+        log("play app=\(appName) rule=\(chosen.source) sound=\(chosen.sound)")
     }
 
     private func play(sound: String, volume: Double?) {
