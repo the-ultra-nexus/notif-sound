@@ -1,6 +1,7 @@
 import Cocoa
 import ApplicationServices
 import UniformTypeIdentifiers
+import CryptoKit
 
 private let notificationCenterBundleID = "com.apple.notificationcenterui"
 
@@ -94,6 +95,9 @@ final class Watcher: NSObject, NSApplicationDelegate {
     private var configModified: Date?
     private var recent: [String: Date] = [:]
     private var retryTimer: Timer?
+    private var settingsWindow: NSWindow?
+    private var rulePopups: [NSPopUpButton] = []
+    private var allPopup: NSPopUpButton?
 
     override init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -133,6 +137,12 @@ final class Watcher: NSObject, NSApplicationDelegate {
 
         retryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.attachIfPossible()
+        }
+
+        if CommandLine.arguments.contains("--settings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.showSettingsWindow()
+            }
         }
     }
 
@@ -352,8 +362,8 @@ final class Watcher: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "重载配置", action: #selector(reloadConfigAction), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "打开配置", action: #selector(openConfigAction), keyEquivalent: "o"))
         menu.addItem(NSMenuItem(title: "打开日志", action: #selector(openLogAction), keyEquivalent: "l"))
-        menu.addItem(NSMenuItem(title: "导入并设为提示音…", action: #selector(setSoundAction), keyEquivalent: "i"))
-        menu.addItem(NSMenuItem(title: "导入音频到目录…", action: #selector(importSoundsAction), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "导入音频…", action: #selector(importSoundsAction), keyEquivalent: "i"))
+        menu.addItem(NSMenuItem(title: "设置提示音…", action: #selector(showSettingsAction), keyEquivalent: "s"))
         menu.addItem(NSMenuItem(title: "打开声音目录", action: #selector(openSoundsAction), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "测试声音", action: #selector(testSoundAction), keyEquivalent: "t"))
@@ -384,7 +394,7 @@ final class Watcher: NSObject, NSApplicationDelegate {
 
     // MARK: 音频导入 / 设置
 
-    /// 复制进声音目录；如果源文件本来就在目录里，直接返回文件名，避免自己删自己。
+    /// 复制进声音目录：按内容哈希去重；同路径直接复用；重名不同内容用 -2 后缀。
     @discardableResult
     private func copyIntoLibrary(_ url: URL) -> String? {
         let fileManager = FileManager.default
@@ -392,16 +402,66 @@ final class Watcher: NSObject, NSApplicationDelegate {
         if url.standardizedFileURL == destination.standardizedFileURL {
             return destination.lastPathComponent
         }
+        guard let hash = fileHash(url) else {
+            log("import failed \(url.lastPathComponent): cannot read")
+            return nil
+        }
+        if let existing = existingSound(withHash: hash) {
+            log("dedupe: \(url.lastPathComponent) == \(existing)")
+            return existing
+        }
+
+        var name = url.lastPathComponent
+        var target = URL(fileURLWithPath: soundsDir).appendingPathComponent(name)
+        var counter = 2
+        while fileManager.fileExists(atPath: target.path) {
+            let base = (name as NSString).deletingPathExtension
+            let ext = (name as NSString).pathExtension
+            name = ext.isEmpty ? "\(base)-\(counter)" : "\(base)-\(counter).\(ext)"
+            target = URL(fileURLWithPath: soundsDir).appendingPathComponent(name)
+            counter += 1
+        }
         do {
-            if fileManager.fileExists(atPath: destination.path) {
-                try fileManager.removeItem(at: destination)
-            }
-            try fileManager.copyItem(at: url, to: destination)
-            return destination.lastPathComponent
+            try fileManager.copyItem(at: url, to: target)
+            return name
         } catch {
             log("import failed \(url.lastPathComponent): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func fileHash(_ url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func existingSound(withHash hash: String) -> String? {
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: soundsDir) else { return nil }
+        for name in names.sorted() where isAudioFile(name) {
+            let path = "\(soundsDir)/\(name)"
+            if fileHash(URL(fileURLWithPath: path)) == hash { return name }
+        }
+        return nil
+    }
+
+    private func isAudioFile(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["aiff", "aif", "wav", "mp3", "m4a", "caf", "flac"].contains(ext)
+    }
+
+    private func availableSounds() -> [String] {
+        var names: [String] = []
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: soundsDir) {
+            names.append(contentsOf: files.filter(isAudioFile).sorted())
+        }
+        if let system = try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds") {
+            names.append(contentsOf: system
+                .filter { $0.hasSuffix(".aiff") }
+                .map { ($0 as NSString).deletingPathExtension }
+                .sorted())
+        }
+        return names
     }
 
     @objc private func importSoundsAction() {
@@ -425,89 +485,165 @@ final class Watcher: NSObject, NSApplicationDelegate {
         }
         guard !imported.isEmpty else { return }
         log("imported: \(imported.joined(separator: ", "))")
-        showAlert(title: "已复制 \(imported.count) 个音频", message: imported.joined(separator: "\n"))
+        if settingsWindow != nil { refreshSettingsWindow() }
+        showAlert(title: "已处理 \(imported.count) 个音频", message: imported.joined(separator: "\n"))
     }
 
-    @objc private func setSoundAction() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.audio]
-        panel.message = "选择要设为提示音的音频"
-        panel.prompt = "下一步"
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            self?.presentTargetChooser(for: url)
+    @objc private func showSettingsAction() {
+        showSettingsWindow()
+    }
+
+    private func showSettingsWindow() {
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
-    }
-
-    private func presentTargetChooser(for url: URL) {
-        guard let config = readConfig() else {
+        guard let config = readConfig(), let rules = config.rules else {
             showAlert(title: "读取配置失败", message: "~/.config/notif-sound/rules.json")
             return
         }
 
-        var targets: [(label: String, app: String?)] = []
-        var seen = Set<String>()
-        for rule in config.rules ?? [] {
-            if let app = rule.app, !app.isEmpty {
-                let key = "app:" + app.lowercased()
-                if seen.insert(key).inserted { targets.append((app, app)) }
-            } else {
-                if seen.insert("any").inserted { targets.append(("(匹配所有通知)", nil)) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "NotifSound · 设置提示音"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 560))
+        window.contentView = content
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20)
+        ])
+
+        let sounds = availableSounds()
+        rulePopups = []
+
+        for (index, rule) in rules.enumerated() {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = 8
+
+            let label = NSTextField(labelWithString: rule.app ?? "(匹配所有通知)")
+            label.widthAnchor.constraint(equalToConstant: 160).isActive = true
+
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            popup.addItems(withTitles: sounds)
+            if !rule.sound.isEmpty {
+                if popup.item(withTitle: rule.sound) == nil {
+                    popup.addItem(withTitle: rule.sound)
+                }
+                popup.selectItem(withTitle: rule.sound)
             }
-        }
-        guard !targets.isEmpty else {
-            showAlert(title: "还没有规则", message: "先在 rules.json 里加一条带 app 的规则。")
-            return
+            popup.tag = index
+            popup.target = self
+            popup.action = #selector(ruleSoundChanged(_:))
+            popup.widthAnchor.constraint(equalToConstant: 220).isActive = true
+            rulePopups.append(popup)
+
+            let preview = NSButton(title: "▶", target: self, action: #selector(previewRuleSound(_:)))
+            preview.bezelStyle = .rounded
+            preview.tag = index
+
+            row.addArrangedSubview(label)
+            row.addArrangedSubview(popup)
+            row.addArrangedSubview(preview)
+            stack.addArrangedSubview(row)
         }
 
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 25), pullsDown: false)
-        for target in targets { popup.addItem(withTitle: target.label) }
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.widthAnchor.constraint(equalToConstant: 480).isActive = true
+        stack.addArrangedSubview(divider)
 
-        let alert = NSAlert()
-        alert.messageText = "把「\(url.lastPathComponent)」设为哪个应用的提示音？"
-        alert.accessoryView = popup
-        alert.addButton(withTitle: "设置")
-        alert.addButton(withTitle: "取消")
+        let allRow = NSStackView()
+        allRow.orientation = .horizontal
+        allRow.spacing = 8
+        let allLabel = NSTextField(labelWithString: "全部设为")
+        allLabel.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: sounds)
+        popup.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        allPopup = popup
+        let applyAll = NSButton(title: "应用到全部", target: self, action: #selector(applySoundToAll(_:)))
+        applyAll.bezelStyle = .rounded
+        allRow.addArrangedSubview(allLabel)
+        allRow.addArrangedSubview(popup)
+        allRow.addArrangedSubview(applyAll)
+        stack.addArrangedSubview(allRow)
+
+        let buttons = NSStackView()
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        let refresh = NSButton(title: "刷新列表", target: self, action: #selector(refreshSettingsWindow))
+        refresh.bezelStyle = .rounded
+        let close = NSButton(title: "关闭", target: self, action: #selector(closeSettingsWindow))
+        close.bezelStyle = .rounded
+        buttons.addArrangedSubview(refresh)
+        buttons.addArrangedSubview(close)
+        stack.addArrangedSubview(buttons)
+
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let index = popup.indexOfSelectedItem
-        guard index >= 0, index < targets.count else { return }
-        applySound(file: url, to: targets[index].app)
     }
 
-    private func applySound(file: URL, to app: String?) {
-        guard let name = copyIntoLibrary(file) else {
-            showAlert(title: "导入失败", message: file.lastPathComponent)
-            return
-        }
-        guard var config = readConfig() else { return }
-        var rules = config.rules ?? []
-        var updated = false
-        for index in rules.indices {
-            if let app {
-                if let ruleApp = rules[index].app,
-                   ruleApp.caseInsensitiveCompare(app) == .orderedSame {
-                    rules[index].sound = name
-                    updated = true
-                }
-            } else if rules[index].app == nil {
-                rules[index].sound = name
-                updated = true
-            }
-        }
-        if !updated {
-            rules.append(Rule(app: app, text: nil, sound: name, volume: nil))
-        }
+    @objc private func ruleSoundChanged(_ sender: NSPopUpButton) {
+        guard let sound = sender.titleOfSelectedItem else { return }
+        guard var config = readConfig(), var rules = config.rules, sender.tag < rules.count else { return }
+        rules[sender.tag].sound = sound
         config.rules = rules
         writeConfig(config)
         loadConfig(force: true)
-        play(sound: name, volume: nil)
-        log("assigned sound=\(name) to=\(app ?? "(any)")")
-        showAlert(title: "已设置提示音", message: "\(app ?? "所有通知") → \(name)")
+        log("settings: rule \(rules[sender.tag].app ?? "(any)") -> \(sound)")
+    }
+
+    @objc private func previewRuleSound(_ sender: NSButton) {
+        guard let config = readConfig(), let rules = config.rules, sender.tag < rules.count else { return }
+        play(sound: rules[sender.tag].sound, volume: rules[sender.tag].volume)
+    }
+
+    @objc private func applySoundToAll(_ sender: Any?) {
+        guard let sound = allPopup?.titleOfSelectedItem, !sound.isEmpty else { return }
+        guard var config = readConfig(), var rules = config.rules else { return }
+        for index in rules.indices { rules[index].sound = sound }
+        config.rules = rules
+        writeConfig(config)
+        loadConfig(force: true)
+        for popup in rulePopups {
+            if popup.item(withTitle: sound) == nil { popup.addItem(withTitle: sound) }
+            popup.selectItem(withTitle: sound)
+        }
+        log("settings: applied \(sound) to all rules")
+    }
+
+    @objc private func refreshSettingsWindow() {
+        settingsWindow?.close()
+        settingsWindow = nil
+        rulePopups = []
+        allPopup = nil
+        showSettingsWindow()
+    }
+
+    @objc private func closeSettingsWindow() {
+        settingsWindow?.close()
+        settingsWindow = nil
+        rulePopups = []
+        allPopup = nil
     }
 
     /// 命令行模式：NotifSound --set-sound <文件> <应用名>
@@ -630,6 +766,15 @@ final class Watcher: NSObject, NSApplicationDelegate {
         } else {
             try? data.write(to: URL(fileURLWithPath: logPath))
         }
+    }
+}
+
+extension Watcher: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        settingsWindow = nil
+        rulePopups = []
+        allPopup = nil
     }
 }
 

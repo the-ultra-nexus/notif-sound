@@ -47,6 +47,9 @@ tail -5 ~/data/notif-sound/logs/notif.log
   `AXDescription` 是应用名，子节点 `AXStaticText` 的 value 是标题/副标题/正文。
 - `scan`：窗口刚创建时子节点可能还没填好，0.4 秒重试最多 4 次。
 - `process`：2 秒去重 → 匹配规则 → `afplay` 播放 → 写日志。
+- `showSettingsWindow`：程序化 AppKit 设置窗口，每个规则一个 `NSPopUpButton`（已导入音频 +
+  系统声音），`▶` 试听，底部「全部设为」一次改所有规则。
+- `copyIntoLibrary`：SHA-256 内容去重；同路径直接复用；重名不同内容用 `-2` 后缀。
 - `resolveSound`：绝对路径 → 导入目录 → 系统声音。
 - `notificationCenterCallback`：全局 C 回调，通过 `refcon` 找回 `Watcher`。
 
@@ -76,9 +79,10 @@ tail -5 ~/data/notif-sound/logs/notif.log
    `.aiff` / `.wav` / `.mp3` / `.m4a` / `.caf`。
 3. `/System/Library/Sounds/<sound>.aiff`。
 
-菜单「导入并设为提示音…」：选音频 → 选目标应用 → 复制文件、写 `rules.json` 并试听；
-「导入音频到目录…」只复制；「打开声音目录」在 Finder 中打开。
-命令行等价物：`NotifSound --set-sound <音频文件> <应用名>`。
+菜单「导入音频…」按内容哈希去重复制；「设置提示音…」打开设置窗口：每个规则一行，
+下拉选已导入音频 / 系统声音，`▶` 试听，底部「全部设为」可一键应用到全部规则；
+「打开声音目录」在 Finder 中打开。
+命令行：`NotifSound --set-sound <音频文件> <应用名>`；`NotifSound --settings` 直接打开设置窗口。
 
 ## 通知侧要求
 
@@ -96,6 +100,8 @@ tail -5 ~/data/notif-sound/logs/notif.log
 - 导入音频时不要直接 `removeItem` 再 `copyItem`：如果用户选中的文件本来就在
   `~/data/notif-sound/sounds/` 里，源和目标是同一路径，会先删掉源文件，表现为「导入后文件不见了」。
   `copyIntoLibrary` 已做同路径判断。
+- 导入按 SHA-256 内容去重，改名后的同一音频不会重复占空间；重名不同内容会生成 `-2` 后缀文件。
+- 设置窗口的「应用到全部」会改掉所有规则（包括 WeChat/Mail 这类别名行），测试或演示后记得恢复。
 - 调试时先 `launchctl bootout gui/$(id -u)/com.nexus.notifsound`，否则单实例锁会让新实例直接退出。
 - NotificationCenter 重启后靠 5 秒定时器重连；菜单里也有「重新连接通知中心」。
 - 日志里的 `ax window created` 是调试输出，保留用于排查。
