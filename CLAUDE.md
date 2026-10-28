@@ -51,6 +51,7 @@ tail -5 ~/data/notif-sound/logs/notif.log
   `AXDescription` 是应用名，子节点 `AXStaticText` 的 value 是标题/副标题/正文。
 - `scan`：窗口刚创建时子节点可能还没填好，0.4 秒重试最多 4 次。
 - `process`：2 秒去重 → 匹配规则 → `afplay` 播放 → 写日志。
+- `playFromCLI`：命令行 `--play <应用名>`，按 app 规则播放，不走横幅，给终端里的 agent 用。
 - `showSettingsWindow`：程序化 AppKit 设置窗口，每个规则一个 `NSPopUpButton`（已导入音频 +
   系统声音），`▶` 试听，底部「全部设为」一次改所有规则。
 - `copyIntoLibrary`：SHA-256 内容去重；同路径直接复用；重名不同内容用 `-2` 后缀。
@@ -87,6 +88,11 @@ tail -5 ~/data/notif-sound/logs/notif.log
 下拉选已导入音频 / 系统声音，`▶` 试听，底部「全部设为」可一键应用到全部规则；
 「打开声音目录」在 Finder 中打开。
 命令行：`NotifSound --set-sound <音频文件> <应用名>`；`NotifSound --settings` 直接打开设置窗口。
+
+`NotifSound --play <应用名>` 是给「横幅里看不到自己名字」的程序用的口子：终端里跑的 Codex、
+Claude 横幅应用名是 kitty，按 app 规则永远匹配不到，所以由 agent 的 hook 调这条命令，
+直接取该应用名对应的规则播放（带 `text` 条件的规则在命令行下跳过；没有匹配规则时走
+`fallback`，`fallback` 也空则退出码 1 不发声）。它不碰 AX，辅助功能没授权也能用。
 
 ## 通知侧要求
 

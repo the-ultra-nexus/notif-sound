@@ -659,6 +659,37 @@ final class Watcher: NSObject, NSApplicationDelegate {
         return sound
     }
 
+    /// 命令行模式：NotifSound --play <应用名>
+    /// 给跑在终端里的 agent（Codex、Claude）用：横幅的应用名永远是终端，按应用名匹配不到，
+    /// 所以由 agent 自己触发，直接取该应用的规则播放。带 text 条件的规则在命令行下跳过。
+    func playFromCLI(app: String) -> Bool {
+        ensureDirectories()
+        guard let config = readConfig() else { return false }
+        let name = app.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var chosen: (sound: String, volume: Double?, source: String)?
+        for rule in config.rules ?? [] {
+            if let ruleApp = rule.app, !ruleApp.isEmpty,
+               !name.localizedCaseInsensitiveContains(ruleApp) {
+                continue
+            }
+            if let ruleText = rule.text, !ruleText.isEmpty { continue }
+            chosen = (rule.sound, rule.volume, rule.app ?? "rule")
+            break
+        }
+        if chosen == nil, let fallback = config.fallback, !fallback.isEmpty {
+            chosen = (fallback, nil, "fallback")
+        }
+        guard let chosen else {
+            log("cli play skip app=\(name) (no matching rule)")
+            return false
+        }
+
+        play(sound: chosen.sound, volume: chosen.volume)
+        log("cli play app=\(name) rule=\(chosen.source) sound=\(chosen.sound)")
+        return true
+    }
+
     /// 命令行模式：NotifSound --set-sound <文件> <应用名>
     func assignFromCLI(filePath: String, app: String) -> Bool {
         ensureDirectories()
@@ -805,6 +836,10 @@ if arguments.contains("--test-sound") {
     let watcher = Watcher()
     print(watcher.testSoundFromCLI())
     exit(0)
+}
+if arguments.count == 3, arguments[1] == "--play" {
+    let watcher = Watcher()
+    exit(watcher.playFromCLI(app: arguments[2]) ? 0 : 1)
 }
 if arguments.count == 4, arguments[1] == "--set-sound" {
     let watcher = Watcher()
