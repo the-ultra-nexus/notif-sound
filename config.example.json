@@ -1,0 +1,13 @@
+{
+  "fallback": "",
+  "rules": [
+    { "app": "微信", "sound": "Glass" },
+    { "app": "WeChat", "sound": "Glass" },
+    { "app": "邮件", "sound": "Hero" },
+    { "app": "Mail", "sound": "Hero" },
+    { "app": "滴答清单", "sound": "Ping" },
+    { "app": "TickTick", "sound": "Ping" },
+    { "app": "kitty", "sound": "Pop" },
+    { "app": "Claude", "sound": "Submarine" }
+  ]
+}
