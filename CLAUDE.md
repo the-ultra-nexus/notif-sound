@@ -101,6 +101,12 @@ tail -5 ~/data/notif-sound/logs/notif.log
   （从终端启动会继承终端的辅助功能权限）。
 - 通知中心的 AX 结构未公开，macOS 大版本升级后可能变化。先写个探针 dump AX 树再改
   `collectBanners`，不要盲改。
+- 横幅窗口的 `AXWindowCreated` 有时先于子节点填充触发，`collectBanners` 会扫到空树；
+  `scan` 用 0.4 秒 ×4 次重试兜底，别去掉。
+- 菜单「测试声音」曾经写死 Glass，用户改完提示音后试听仍是旧声音。现在播放第一条规则的
+  音色（最近在设置窗口选过/试听过的优先），命令行 `--test-sound` 走同一逻辑。
+- 这是 `LSUIElement` 状态栏应用，没有窗口，agent-desktop 的 `list-surfaces` 为空、
+  `snapshot` 报 `WINDOW_NOT_FOUND`。调 UI 时用 `NotifSound --settings` 启动，窗口直接出现。
 - 导入音频时不要直接 `removeItem` 再 `copyItem`：如果用户选中的文件本来就在
   `~/data/notif-sound/sounds/` 里，源和目标是同一路径，会先删掉源文件，表现为「导入后文件不见了」。
   `copyIntoLibrary` 已做同路径判断。
