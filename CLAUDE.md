@@ -31,9 +31,13 @@ NotifSound 是一个 macOS 菜单栏工具：监听通知中心横幅，按应�
 ## 测试
 
 ```bash
+NotifSound --test-sound   # 播放当前第一条规则的音色
 osascript -e 'display notification "test body" with title "Test" subtitle "hello"'
 tail -5 ~/data/notif-sound/logs/notif.log
 ```
+
+菜单「测试声音」播放的是配置里第一条规则的音色（最近在设置窗口选过/试听过的优先），
+不是写死的 Glass；命令行 `--test-sound` 走同一套逻辑。
 
 日志里应出现 `play app=脚本编辑器 rule=... sound=... text=...`（osascript 的横幅应用名是「脚本编辑器」）。
 用 `pmset -g assertions | grep -i coreaudio` 确认空闲时没有音频/防睡断言。

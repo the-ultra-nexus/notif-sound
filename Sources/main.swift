@@ -95,6 +95,7 @@ final class Watcher: NSObject, NSApplicationDelegate {
     private var configModified: Date?
     private var recent: [String: Date] = [:]
     private var retryTimer: Timer?
+    private var lastPreviewSound: String?
     private var settingsWindow: NSWindow?
     private var rulePopups: [NSPopUpButton] = []
     private var allPopup: NSPopUpButton?
@@ -609,11 +610,13 @@ final class Watcher: NSObject, NSApplicationDelegate {
         config.rules = rules
         writeConfig(config)
         loadConfig(force: true)
+        lastPreviewSound = sound
         log("settings: rule \(rules[sender.tag].app ?? "(any)") -> \(sound)")
     }
 
     @objc private func previewRuleSound(_ sender: NSButton) {
         guard let config = readConfig(), let rules = config.rules, sender.tag < rules.count else { return }
+        lastPreviewSound = rules[sender.tag].sound
         play(sound: rules[sender.tag].sound, volume: rules[sender.tag].volume)
     }
 
@@ -628,6 +631,7 @@ final class Watcher: NSObject, NSApplicationDelegate {
             if popup.item(withTitle: sound) == nil { popup.addItem(withTitle: sound) }
             popup.selectItem(withTitle: sound)
         }
+        lastPreviewSound = sound
         log("settings: applied \(sound) to all rules")
     }
 
@@ -644,6 +648,15 @@ final class Watcher: NSObject, NSApplicationDelegate {
         settingsWindow = nil
         rulePopups = []
         allPopup = nil
+    }
+
+    /// 命令行模式：NotifSound --test-sound
+    func testSoundFromCLI() -> String {
+        ensureDirectories()
+        let sound = readConfig()?.rules?.first?.sound ?? "Glass"
+        play(sound: sound, volume: nil)
+        log("test sound: \(sound)")
+        return sound
     }
 
     /// 命令行模式：NotifSound --set-sound <文件> <应用名>
@@ -693,8 +706,15 @@ final class Watcher: NSObject, NSApplicationDelegate {
     }
 
     @objc private func testSoundAction() {
-        play(sound: "Glass", volume: nil)
-        log("test sound")
+        guard let config = readConfig(), let rules = config.rules, !rules.isEmpty else {
+            play(sound: "Glass", volume: nil)
+            log("test sound: Glass (no rules)")
+            return
+        }
+        let rule = rules.first { $0.sound == lastPreviewSound } ?? rules[0]
+        lastPreviewSound = rule.sound
+        play(sound: rule.sound, volume: rule.volume)
+        log("test sound: \(rule.sound)")
     }
 
     @objc private func reconnectAction() {
@@ -781,6 +801,11 @@ extension Watcher: NSWindowDelegate {
 // MARK: - 入口
 
 let arguments = CommandLine.arguments
+if arguments.contains("--test-sound") {
+    let watcher = Watcher()
+    print(watcher.testSoundFromCLI())
+    exit(0)
+}
 if arguments.count == 4, arguments[1] == "--set-sound" {
     let watcher = Watcher()
     exit(watcher.assignFromCLI(filePath: arguments[2], app: arguments[3]) ? 0 : 1)
