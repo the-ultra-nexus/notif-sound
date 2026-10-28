@@ -12,7 +12,12 @@
 
 ## 配置
 
-`~/.config/notif-sound/rules.json`：
+全部文件收在 App 自己的目录 `~/Library/Application Support/NotifSound/` 下：
+`rules.json`（规则）、`sounds/`（音频）、`logs/`（日志）。日常增删规则用菜单栏的
+「规则设置…」，不用手改 JSON；手改也支持，下一条通知自动重读。
+
+旧版本放在 `~/.config/notif-sound/rules.json` 和 `~/data/notif-sound/`，升级后首次启动会
+自动搬进新目录（目标已存在时不覆盖），旧目录搬空即删除。
 
 ```json
 {
@@ -27,11 +32,12 @@
 }
 ```
 
-- `sound` 先在 `~/data/notif-sound/sounds/` 里找（可写 `my-chime.mp3`，也可只写 `my-chime`），
+- `sound` 先在 `~/Library/Application Support/NotifSound/sounds/` 里找（可写 `my-chime.mp3`，也可只写 `my-chime`），
   找不到再退回 `/System/Library/Sounds/` 的系统声音（`Glass`、`Hero`、`Ping`…），也支持绝对路径。
 - 菜单栏 🔔 →「导入音频…」：按内容哈希去重，同一文件只存一份；重名但内容不同会自动加 `-2` 后缀。
-- 菜单栏 🔔 →「设置提示音…」：每个应用一行，从已导入音频 / 系统声音里选，`▶` 试听；
-  底部「全部设为」+「应用到全部」可以一键把所有规则改成同一个声音。
+- 菜单栏 🔔 →「规则设置…」：一条规则一行，可直接改应用名、关键词、声音、音量，`▶` 试听，
+  `✕` 删除；「＋ 新增规则」从运行中的 App 里选（也可手输），底部「全部设为」+「应用到全部」
+  一键把所有规则改成同一个声音。窗口打开时不会自动选中任何输入框，`cmd+w` 关闭。
 - 也可以命令行设置：`NotifSound --set-sound <音频文件> <应用名>`；
 - 命令行 `NotifSound --play <应用名>` 直接按应用名取规则播放，不用等横幅——给「横幅里看不到
   自己名字」的场景用（终端里跑的 Codex、Claude，横幅应用名永远是终端）。代价是它不等弹窗，
@@ -62,7 +68,7 @@ NotifSound 不需要通知权限，只需要辅助功能权限；原生声音关
 | kitty | kitty | Pop |
 | Claude | Claude | Submarine |
 
-自定义音频放在 `~/data/notif-sound/sounds/`，`sound` 写文件名即可（如 `my-chime.mp3`）。
+自定义音频放在 `~/Library/Application Support/NotifSound/sounds/`，`sound` 写文件名即可（如 `my-chime.mp3`）。
 作者本地使用从旧 Chirpy 迁移的 `pi-chime.mp3`、`hello.mp3`、`discord-notification.mp3`，
 这些文件不随仓库分发。
 
@@ -93,7 +99,7 @@ mv ~/Library/LaunchAgents/com.nexus.notifsound.plist ~/.Trash/
 
 ## 日志
 
-`~/data/notif-sound/logs/notif.log`，每条形如：
+`~/Library/Application Support/NotifSound/logs/notif.log`，每条形如：
 
 ```
 2026-10-28 23:02:14 attached to NotificationCenter pid 423
